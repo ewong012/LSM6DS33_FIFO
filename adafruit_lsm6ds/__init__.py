@@ -2,6 +2,13 @@
 #
 # SPDX-License-Identifier: MIT
 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+# OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+# OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 """
 `adafruit_lsm6ds`
 ================================================================================
@@ -52,7 +59,7 @@ Implementation Notes
 
 """
 
-__version__ = "0.0.0-auto.0"
+__version__ = "4.2.0"
 __repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_LSM6DS.git"
 
 from time import sleep
@@ -146,8 +153,41 @@ _LSM6DS_OUTX_L_A = const(0x28)
 _LSM6DS_STEP_COUNTER = const(0x4B)
 _LSM6DS_TAP_CFG = const(0x58)
 
+# FIFO Operational Registers
+_LSM6DS_FIFO_CTRL1 = const(0x06)
+_LSM6DS_FIFO_CTRL2 = const(0x07)
+_LSM6DS_FIFO_CTRL3 = const(0x08)
+_LSM6DS_FIFO_CTRL4 = const(0x09)
+_LSM6DS_FIFO_CTRL5 = const(0x0A)
+_LSM6DS_INT1_CTRL = const(0x0D)
+_LSM6DS_FIFO_DATA_OUT_L = const(0x3E)
+_LSM6DS_FIFO_DATA_OUT_H = const(0x3F)
+_LSM6DS_FIFO_STATUS1 = const(0x3A)
+_LSM6DS_FIFO_STATUS2 = const(0x3B)
+_LSM6DS_FIFO_STATUS3 = const(0x3C)
+_LSM6DS_FIFO_STATUS4 = const(0x3D)
+_LSM6DS_TIMESTAMP0_REG = const(0x40)
+_LSM6DS_TIMESTAMP1_REG = const(0x41)
+_LSM6DS_TIMESTAMP2_REG = const(0x42)
+
+
 _MILLI_G_TO_ACCEL = 0.00980665
 
+"""
+1. Set threshold of FIFO
+2. Enable interrupt on FIFO threshold
+3. Set FIFO mode
+4. Set data rate to 52 hz
+5. Read data
+"""
+
+"""
+Read Operation
+1. Interrupt on INT1
+2. Read how many samples there are in status register
+3. Continuously read data and timestamp for number of samples
+4. Check number of samples less than fifo threshold
+"""
 
 class LSM6DS:  # pylint: disable=too-many-instance-attributes
 
@@ -186,6 +226,24 @@ class LSM6DS:  # pylint: disable=too-many-instance-attributes
     """The number of steps detected by the pedometer. You must enable with `pedometer_enable`
     before calling. Use `pedometer_reset` to reset the number of steps"""
     CHIP_ID = None
+
+
+    # FIFO RWBits:
+    _fifo_threshold_l = RWBits(8, _LSM6DS_FIFO_CTRL1, 0)
+    _fifo_threshold_h = RWBits(4, _LSM6DS_FIFO_CTRL2, 0)
+    _gyro_fifo_dec = RWBits(3, _LSM6DS_FIFO_CTRL3, 0)
+    _accel_fifo_dec = RWBits(3, _LSM6DS_FIFO_CTRL3, 3)
+    _fifo_mode = RWBits(3, _LSM6DS_FIFO_CTRL5, 0)
+    _fifo_data_rate = RWBits(4, _LSM6DS_FIFO_CTRL5, 4)
+    _int1_full_set = RWBit(_LSM6DS_INT1_CTRL, 3)
+
+    _raw_fifo_data = Struct(_LSM6DS_FIFO_DATA_OUT_L, "<h")
+    _fifo_timestamp = Struct(_LSM6DS_TIMESTAMP0_REG, "<hhh")
+    _fifo_status1 = ROUnaryStruct(_LSM6DS_FIFO_STATUS1, "<B")
+    _fifo_status2 = ROUnaryStruct(_LSM6DS_FIFO_STATUS2, "<B")
+    _fifo_status3 = ROUnaryStruct(_LSM6DS_FIFO_STATUS3, "<B")
+    _fifo_status4 = ROUnaryStruct(_LSM6DS_FIFO_STATUS4, "<B")
+
 
     def __init__(self, i2c_bus, address=LSM6DS_DEFAULT_ADDRESS):
         self._cached_accel_range = None
@@ -256,6 +314,14 @@ class LSM6DS:  # pylint: disable=too-many-instance-attributes
         raw_gyro_data = self._raw_gyro_data
         x, y, z = [radians(self._scale_gyro_data(i)) for i in raw_gyro_data]
         return (x, y, z)
+
+    @property
+    def fifo_data(self):
+        """The x, y, z angular velocity values returned in a 3-tuple and are in radians / second"""
+        raw_fifo_data = self._raw_fifo_data
+        
+        return raw_fifo_data
+
 
     def _scale_xl_data(self, raw_measurement):
         return (
