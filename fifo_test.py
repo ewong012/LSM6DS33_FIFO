@@ -64,21 +64,19 @@ def imu_fth_isr(gpio, level, tick):
     print(f"Index of next reading: {pattern_index}")
 
     # Read in multiples of 6, the number of readings from Gx to Az
-    samples_to_read = unread_words // 6 * 6
-    buffer_l = bytearray(samples_to_read)
-    buffer_h = bytearray(samples_to_read)
-    fifo_data_out_l = bytearray(b'\x3E')  # _LSM6DS_FIFO_DATA_OUT_L
-    fifo_data_out_h = bytearray(b'\x3F')  # _LSM6DS_FIFO_DATA_OUT_H
+    BYTES_PER_WORD = 2
+    WORDS_PER_PATTERN = 6
+    words_to_read = unread_words // WORDS_PER_PATTERN * WORDS_PER_PATTERN
+    buffer_size = words_to_read * BYTES_PER_WORD
+    buffer = bytearray(buffer_size)
+    FIFO_DATA_OUT_L = bytearray(b'\x3E')
 
-    # Read FIFO data into buffer_l and buffer_h
+    # Read FIFO data into buffer
     start_time = time.time()
-    imu.i2c_device.write_then_readinto(fifo_data_out_l, buffer_l)
-    imu.i2c_device.write_then_readinto(fifo_data_out_h, buffer_h)
+    imu.i2c_device.write_then_readinto(FIFO_DATA_OUT_L, buffer)
     end_time = time.time()
     total_read_time = end_time - start_time
-    print(f"{samples_to_read*2} bytes read in {total_read_time:.6f} seconds. {samples_to_read*2/total_read_time:.0f} bytes/s")
-    print(f"buffer_l = {buffer_l[:6].hex()} ... {buffer_l[-6:].hex()} | Len: {len(buffer_l)}")
-    print(f"buffer_h = {buffer_h[:6].hex()} ... {buffer_h[-6:].hex()} | Len: {len(buffer_h)}")
+    print(f"{buffer_size} bytes read in {total_read_time:.6f} seconds. {buffer_size/total_read_time:.0f} bytes/s")
 
     # Read FIFO status
     status1 = imu._fifo_status1
@@ -91,7 +89,18 @@ def imu_fth_isr(gpio, level, tick):
     print(f"Index of next reading: {pattern_index}")
 
     last_tick = tick
+
+    # Print data
+    PREVIEW_BYTES = 12
+    print(f"buffer = {buffer[:PREVIEW_BYTES].hex()} ... {buffer[-PREVIEW_BYTES:].hex()} | Len: {len(buffer)}")
+    data = [parse_fifo_data(buffer[i:i+2]) for i in range(0, len(buffer), 2)]
+    print(f"data = [{', '.join(map(str, data[:PREVIEW_BYTES]))}, ..., {', '.join(map(str, data[-PREVIEW_BYTES:]))}] | Len: {len(data)}")
+
     print()
+
+def parse_fifo_data(data: bytearray) -> None:
+    """Parse FIFO data from bytes to decimal."""
+    return int.from_bytes(data, byteorder='little', signed=True)
 
 
 # Initialize I2C bus
